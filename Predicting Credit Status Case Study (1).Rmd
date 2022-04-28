@@ -1,0 +1,205 @@
+---
+title: "Predicting Credit Status Case Study"
+author: "Nengfeng Lin 1004419417(Presentation, model, analysis), Chen Wang( Presentation, model, background) 100252432, Yue Han(Presentation, model, conclusion) 1005299614, Xuankai Zhang( Presentation, model, explanation) 1005722112"
+output: word_document
+---
+## Introduction
+Objective: build a model to predict the status of credit (good or bad)
+Interest: what factors lead to good or bad credit status and how can we use this to predict the status? In order to answer this question, we need to find a model that fits the data well.
+
+## Background and Significance 
+
+The data in this study is a stratified sample of 1000 credits (300 bad ones and 700 good ones) from the years 1973 to 1975 from a large regional bank in southern Germany. Although realistically, only 5% of data are bad ones, the bad credits in the dataset was clearly oversampled. Within the 20 explanatory variables of the dataset, seven were quantitative and 13 categorical. The importance of credit is well understood by all who live in this modern age, as it dramatically affects the capability to apply for a financial loan. Customers with "good" credit would compile with the contract terms, while those that are "bad" would not. Therefore, the bank would benefit if they could predict the status of credit with customers before the contract gave their information, which leads to this study. This analysis aims to build a model to predict the level of credit.
+
+
+Load any libraries that will be used
+```{r, message=FALSE, warning=FALSE}
+library(plyr)
+library(tidyverse)
+library(MASS)
+library(ResourceSelection)
+library(pROC)
+```
+
+
+Load the data set we will use to build the model
+```{r}
+url <- "Credit.csv"
+credit<- read_csv(url, show_col_types = FALSE)
+attach(credit)
+```
+## Clean errors for data
+We determine credit_risk to be our response variable since its description fits our objective. It tells us whether they have good or bad status of credit. By looking into the credit_risk variable, we see that in total we have 300 bad credits (who did not comply with the contract) and 700 good credits (who did comply with the contract)
+```{r}
+credit %>% count(credit_risk)
+```
+
+Establishing and classifying the variables, Quantitative or Qualitative
+```{r}
+good <- as.factor(credit_risk==1)
+bad <- as.factor(credit_risk==0)
+creditHistory <- as.factor(credit_history)
+status <- as.factor(status)
+duration <- as.numeric(duration)
+purpose <- as.factor(purpose)
+amount <- as.numeric(amount)
+savings <- as.factor(savings)
+employDuration <- as.factor(employment_duration)
+installmentRate <- as.factor(installment_rate)
+personstatusSex <- as.factor(personal_status_sex)
+otherDebtors <- as.factor(other_debtors)
+presentResi <- as.factor(present_residence)
+property <- as.factor(property)
+age <- as.numeric(age)
+othinsPlan <- as.factor(other_installment_plans)
+housing <- as.factor(housing)
+numCredit <- as.factor(number_credits)
+job <- as.factor(job)
+peoLiable <- as.factor(people_liable)
+telephone <- as.factor(telephone)
+forWorker <- as.factor(foreign_worker)
+```
+
+## Exploratory Data Analysis
+After loading the data, We need to check for the multicollinearity. The highest correlation value we get it 0.6 which is not very high so we do not need to worry about the correlation between any pair of the variables. 
+```{r fig.height=4, fig.width=10}
+round(cor(amount,duration),2)
+plot(amount,duration)
+```
+
+
+We then decided to look at relationships within the data through plots
+Here are some plots of data we thought would relate to the status of credit (good or bad)
+
+The first boxplot is duration and credit_risk (status of credit (good or bad)). We see there is a higher mode duration when there is bad status of credit which could lead us to believe there is a relationship between duration and credit status being good or bad
+```{r fig.height=2, fig.width=2}
+ggplot(aes(x = duration, y = good), data = credit) +geom_boxplot() + ylab("credit_risk")
+```
+
+Here are some more graphs which shows certain status and creditHistory is related to credit status being good or bad such as when status is 4 (>= 200 DM / salary for at least 1 year) or when creditHistory = 2 (no credits taken/all credits paid back duly) 
+```{r fig.height=2, fig.width=4}
+par( mfrow = c(2,2) )
+ggplot(data = credit, aes(x = status, fill = good)) +
+    geom_bar(position = "dodge") 
+ggplot(data = credit, aes(x = creditHistory, fill = good)) +
+    geom_bar(position = "dodge")
+
+```
+## Model
+
+The first model that we come up is the model with all variables, but no interation between any variable. 
+```{r}
+credit.fit1 <- glm(good~creditHistory+status+duration+purpose+amount+savings+employDuration+installmentRate+personstatusSex+otherDebtors+presentResi+property+age+othinsPlan+housing+numCredit+job+peoLiable+telephone+forWorker,family = binomial)
+summary(credit.fit1)
+```
+
+Model with no main effects and interactions
+```{r}
+credit.fit2 <- glm(good~1,family = binomial)
+```
+We see from the AIC value above, we need more variables
+Using stepwise, backward elimination, and forward selection we get the following
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#stepAIC(credit.fit2, direction="both", scope=list(upper = credit.fit1, lower=credit.fit2))
+```
+```{r}
+cred.both <- glm(formula = good ~ status + duration + creditHistory + purpose + 
+    savings + otherDebtors + forWorker + presentResi + housing + 
+    installmentRate + amount + personstatusSex + telephone + 
+    othinsPlan, family = binomial)
+#summary(cred.both)
+```
+
+
+```{r}
+#stepAIC(credit.fit1, direction="backward", scope=list(upper = credit.fit1, lower=credit.fit2))
+```
+
+```{r}
+cred.backward <- glm(formula = good ~ creditHistory + status + duration + purpose + 
+    amount + savings + employDuration + installmentRate + personstatusSex + 
+    otherDebtors + presentResi + age + othinsPlan + housing + 
+    forWorker, family = binomial)
+#summary(cred.backward)
+```
+
+```{r}
+#stepAIC(credit.fit2, direction="forward", scope=list(upper = credit.fit1, lower=credit.fit2))
+```
+```{r}
+cred.forward <- glm(formula = good ~ status + duration + creditHistory + purpose + 
+    savings + otherDebtors + forWorker + employDuration + presentResi + 
+    housing + installmentRate + amount + personstatusSex + telephone + 
+    othinsPlan, family = binomial)
+#summary(cred.forward)
+```
+
+```{r fig.height=3, fig.width=3}
+credit_roc = roc(good~fitted(cred.both), plot=TRUE, print.auc = TRUE)
+credit_roc_b = roc(good~fitted(cred.backward), plot=TRUE, print.auc = TRUE)
+credit_roc_f = roc(good~fitted(cred.forward), plot=TRUE, print.auc = TRUE)
+```
+
+We use the forward selection model because it has the lowest AIC value and largest ROC value.
+The larger the concordance index the better. We see the forward model has the highest concordance index value c = 0.832
+
+LRT indicates strong status, duration, creditHistory, purpose,savings, otherDebtors, forWorker, employDuration, presentResi, housing,installmentRate, amount and personstatusSex effect however telephone and othinsPlan does not indicate strong effect so maybe we can remove them to get a better model let's try this.
+```{r}
+drop1(cred.forward, test = "Chisq")
+```
+This is the model of forward selection with telephone and othinsPlan dropped we want to compare which one is better.
+We see AIC is slightly higher when dropping those variables
+```{r}
+cred.fordrop <- glm(formula = good ~ status + duration + creditHistory + purpose + 
+    savings + otherDebtors + forWorker + employDuration + presentResi + 
+    housing + installmentRate + amount + personstatusSex, family = binomial)
+#summary(cred.fordrop)
+```
+
+since p-value <0.1 we can say the 90% anova test shows the forward model with dropped variables fits the data better but it is extremely close to 0.1 so we should look more into it
+```{r}
+anova(cred.forward,cred.fordrop,test = "Chisq")
+```
+
+ROC
+The larger the concordance index the better. We see the forward model still has the highest concordance index value c = 0.832 from above
+```{r fig.height=3, fig.width=3}
+credit_roc_fd = roc(good~fitted(cred.fordrop), plot=TRUE, print.auc = TRUE)
+```
+So because ROC and AIC are better in the forward selection model we will use it as our model.
+
+sensitivity is 88% and specificity is 53% which is relatively good
+```{r}
+n = dim(credit)[1]
+prop = sum(credit$credit_risk==1)/n
+prop2 = 0.5
+y = (credit$credit_risk==1)*1
+predicted = as.numeric(fitted(cred.forward) > prop2)
+xtabs(~y + predicted)
+sensitivity = 621/(621+79)
+sensitivity
+specificity = 159/(159+141)
+specificity
+```
+
+p-value > 0.05 fail to reject null hypothesis, the current model fits the data well
+```{r}
+hoslem.test(cred.forward$y, fitted(cred.forward), g =16)
+```
+## Conclusion
+In conclusion we use the following model
+good ~ status + duration + creditHistory + purpose + savings + 
+    otherDebtors + forWorker + employDuration + presentResi + 
+    housing + installmentRate + amount + personstatusSex + telephone + 
+    othinsPlan
+
+We can use this model to decide whether to approve a client for a contract based on our prediction
+This minimizes cases where clients do not comply with the contract
+
+Some limitations we had was the small sized dataset which had bad credit oversampled and the data being old (sampled from 1973 to 1975). Since the ROC, AIC and anova test was so close it still can be up to discussion whether having a telephone landline and other installment plans is influential so we suggest doing further research on these two. 
+
+
+## References
+1. Grömping, U. (2019). Fachbereich II. FB II: Reports. Retrieved April 9, 2022, from http://www1.beuth-hochschule.de/FB_II/reports/welcome.htm 
+
+2. South German Credit (UPDATE) Data Set. UCI Machine Learning Repository: South German credit (update) data set. (n.d.). Retrieved April 1, 2022, from https://archive.ics.uci.edu/ml/datasets/South+German+Credit+%28UPDATE%29
